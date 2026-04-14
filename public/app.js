@@ -285,17 +285,10 @@ goRecordsBtn.addEventListener("click", () => {
 filterDateInput.addEventListener("change", loadRecords);
 filterTypeSelect.addEventListener("change", loadRecords);
 filterSizeSelect.addEventListener("change", loadRecords);
-clearFilterBtn.addEventListener("click", async () => {
-  filterDateInput.value = "";
-  filterTypeSelect.value = "";
-  filterSizeSelect.value = "";
-  await loadRecords();
-});
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((reg) => reg.unregister()));
 
-showScreen("register");
-initializeSize();
-
-if ("serviceWorker" in navigator) {
+        console.error("Falha ao limpar service workers antigos:", error);
   window.addEventListener("load", async () => {
     const shouldRegisterPwa = window.location.port === "3000";
 
