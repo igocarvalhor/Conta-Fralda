@@ -285,23 +285,23 @@ goRecordsBtn.addEventListener("click", () => {
 filterDateInput.addEventListener("change", loadRecords);
 filterTypeSelect.addEventListener("change", loadRecords);
 filterSizeSelect.addEventListener("change", loadRecords);
-        const regs = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(regs.map((reg) => reg.unregister()));
+clearFilterBtn.addEventListener("click", async () => {
+  filterDateInput.value = "";
+  filterTypeSelect.value = "";
+  filterSizeSelect.value = "";
+  await loadRecords();
+});
 
-        console.error("Falha ao limpar service workers antigos:", error);
+showScreen("register");
+initializeSize();
+
+if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
-    const shouldRegisterPwa = window.location.port === "3000";
-
     try {
-      if (!shouldRegisterPwa) {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(regs.map((reg) => reg.unregister()));
-        return;
-      }
-
-      await navigator.serviceWorker.register("./service-worker.js", { scope: "./" });
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((reg) => reg.unregister()));
     } catch (error) {
-      console.error("Falha ao configurar service worker:", error);
+      console.error("Falha ao limpar service workers antigos:", error);
     }
   });
 }
