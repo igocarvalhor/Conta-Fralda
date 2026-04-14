@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800&family=Baloo+2:wght@700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=10" />
+    <link rel="stylesheet" href="styles.css?v=11" />
   </head>
   <body>
     <section id="auth-shell" class="auth-shell">
@@ -68,7 +68,8 @@
 
       <nav class="screen-nav" aria-label="Navegacao principal">
         <button id="go-register" class="screen-tab active" type="button">Registrar</button>
-        <button id="go-records" class="screen-tab" type="button">Ver registros</button>
+        <button id="go-records" class="screen-tab" type="button">Registros</button>
+        <button id="go-stock" class="screen-tab" type="button">Estoque</button>
       </nav>
 
       <section id="screen-register" class="screen active" aria-label="Tela de registro rapido">
@@ -88,6 +89,8 @@
             </div>
           </div>
           
+          <p id="stock-indicator" class="stock-indicator" aria-live="polite"></p>
+
           <div class="quick-actions">
             <button class="quick-btn" data-type="xixi" type="button" aria-label="Adicionar 1 xixi">
               <span class="quick-icon" aria-hidden="true">💧</span>
@@ -144,9 +147,18 @@
           <ul id="records-list"></ul>
         </section>
       </section>
+
+      <section id="screen-stock" class="screen" aria-label="Tela de estoque de fraldas">
+        <section class="card">
+          <h2>Estoque de Fraldas</h2>
+          <p class="quick-tip">Gerencie a quantidade disponível por tamanho. O estoque é decrementado automaticamente a cada registro.</p>
+        </section>
+        <div id="stock-list" class="stock-list"></div>
+      </section>
+
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@1.35.7/dist/umd/supabase.min.js"></script>
-    <script src="app.js?v=10"></script>
+    <script src="app.js?v=11"></script>
   </body>
 </html>

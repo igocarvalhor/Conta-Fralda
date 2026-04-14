@@ -25,7 +25,7 @@ app.use(express.json());
 // Permite uso do frontend em outra porta (ex.: Live Server na 5501) durante o desenvolvimento.
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
   if (req.method === "OPTIONS") {
@@ -322,7 +322,36 @@ app.post("/api/records", async (req, res) => {
     return res.status(500).json({ error: "Erro ao salvar registro." });
   }
 
-  return res.status(201).json(data[0]);
+  // Decrement stock for the registered size (best-effort – never fails the request)
+  let stockInfo = null;
+  try {
+    const { data: stockRows } = await supabase
+      .from("stock")
+      .select("quantity,low_threshold")
+      .eq("user_id", user.id)
+      .eq("size", parsedSize)
+      .limit(1);
+
+    if (stockRows && stockRows.length > 0) {
+      const currentQty = stockRows[0].quantity;
+      const lowThreshold = stockRows[0].low_threshold;
+      const newQty = Math.max(0, currentQty - parsedQuantity);
+
+      await supabase
+        .from("stock")
+        .update({ quantity: newQty, updated_at: new Date().toISOString() })
+        .eq("user_id", user.id)
+        .eq("size", parsedSize);
+
+      stockInfo = { quantity: newQty, low_threshold: lowThreshold, is_low: newQty <= lowThreshold };
+    }
+  } catch (_stockErr) {
+    // Best-effort: stock decrement never blocks the main operation
+  }
+
+  const record = data[0];
+  record.time_brasilia = formatTimeInBrasilia(record.created_at);
+  return res.status(201).json({ ...record, stock: stockInfo });
 });
 
 app.delete("/api/records/:id", async (req, res) => {
@@ -367,6 +396,116 @@ app.delete("/api/records/:id", async (req, res) => {
   }
 
   return res.status(204).send();
+});
+
+app.get("/api/stock", async (req, res) => {
+  if (!ensureSupabaseConfigured(res)) {
+    return;
+  }
+
+  const user = await getAuthenticatedUser(req, res);
+  if (!user) {
+    return;
+  }
+
+  const { data: stockRows, error: stockError } = await supabase
+    .from("stock")
+    .select("size,quantity,low_threshold")
+    .eq("user_id", user.id);
+
+  if (stockError) {
+    return res.status(500).json({ error: "Erro ao buscar estoque." });
+  }
+
+  // Compute 7-day usage per size from recent records
+  const now = new Date();
+  const sevenDaysAgo = new Date(now);
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const sevenDaysAgoISO = sevenDaysAgo.toISOString().split("T")[0];
+
+  const { data: recentRecords } = await supabase
+    .from("records")
+    .select("size,quantity")
+    .eq("user_id", user.id)
+    .gte("date", sevenDaysAgoISO);
+
+  const usage7d = {};
+  for (const s of VALID_SIZES) {
+    usage7d[s] = 0;
+  }
+  for (const record of (recentRecords || [])) {
+    if (Object.prototype.hasOwnProperty.call(usage7d, record.size)) {
+      usage7d[record.size] += record.quantity;
+    }
+  }
+
+  const result = {};
+  for (const s of VALID_SIZES) {
+    result[s] = { quantity: 0, low_threshold: 5, usage7d: usage7d[s] };
+  }
+  for (const row of (stockRows || [])) {
+    result[row.size] = {
+      quantity: row.quantity,
+      low_threshold: row.low_threshold,
+      usage7d: usage7d[row.size],
+    };
+  }
+
+  return res.json(result);
+});
+
+app.put("/api/stock/:size", async (req, res) => {
+  if (!ensureSupabaseConfigured(res)) {
+    return;
+  }
+
+  const user = await getAuthenticatedUser(req, res);
+  if (!user) {
+    return;
+  }
+
+  const size = String(req.params.size || "").toUpperCase().trim();
+  if (!VALID_SIZES.includes(size)) {
+    return res.status(400).json({ error: "Tamanho inválido. Use RN, P, M, G, XG ou XXG." });
+  }
+
+  const rawQuantity = req.body?.quantity;
+  if (rawQuantity === undefined || rawQuantity === null) {
+    return res.status(400).json({ error: "Informe a quantidade." });
+  }
+
+  const parsedQuantity = Number(rawQuantity);
+  if (!Number.isInteger(parsedQuantity) || parsedQuantity < 0) {
+    return res.status(400).json({ error: "Quantidade deve ser um inteiro não-negativo." });
+  }
+
+  const rawThreshold = req.body?.low_threshold;
+  const parsedThreshold = rawThreshold !== undefined && rawThreshold !== null
+    ? Number(rawThreshold)
+    : 5;
+
+  if (!Number.isInteger(parsedThreshold) || parsedThreshold < 0) {
+    return res.status(400).json({ error: "Limite de alerta inválido." });
+  }
+
+  const { error } = await supabase
+    .from("stock")
+    .upsert(
+      [{
+        user_id: user.id,
+        size,
+        quantity: parsedQuantity,
+        low_threshold: parsedThreshold,
+        updated_at: new Date().toISOString(),
+      }],
+      { onConflict: "user_id,size" }
+    );
+
+  if (error) {
+    return res.status(500).json({ error: "Erro ao atualizar estoque." });
+  }
+
+  return res.json({ ok: true, size, quantity: parsedQuantity, low_threshold: parsedThreshold });
 });
 
 if (require.main === module) {

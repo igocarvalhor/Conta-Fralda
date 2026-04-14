@@ -25,6 +25,10 @@ const activeFiltersEl = document.getElementById("active-filters");
 const summaryEl = document.getElementById("summary");
 const typeSummaryEl = document.getElementById("type-summary");
 const recordsList = document.getElementById("records-list");
+const goStockBtn = document.getElementById("go-stock");
+const stockScreen = document.getElementById("screen-stock");
+const stockListEl = document.getElementById("stock-list");
+const stockIndicatorEl = document.getElementById("stock-indicator");
 
 const isLocalDevHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const API_BASE = isLocalDevHost && window.location.port && window.location.port !== "3000"
@@ -36,17 +40,31 @@ const authClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHAB
 let selectedSize = localStorage.getItem("selectedSize") || "M";
 let messageTimer = null;
 let currentSession = null;
+let stockData = {};
+
+const VALID_SIZES_ARR = ["RN", "P", "M", "G", "XG", "XXG"];
+const SIZE_NAMES = {
+  RN: "Recém-nascido",
+  P: "Pequeno",
+  M: "Médio",
+  G: "Grande",
+  XG: "Extra Grande",
+  XXG: "Extra Extra Grande",
+};
 
 function showScreen(screenName) {
-  const isRegister = screenName === "register";
+  registerScreen.classList.toggle("active", screenName === "register");
+  recordsScreen.classList.toggle("active", screenName === "records");
+  stockScreen.classList.toggle("active", screenName === "stock");
+  goRegisterBtn.classList.toggle("active", screenName === "register");
+  goRecordsBtn.classList.toggle("active", screenName === "records");
+  goStockBtn.classList.toggle("active", screenName === "stock");
 
-  registerScreen.classList.toggle("active", isRegister);
-  recordsScreen.classList.toggle("active", !isRegister);
-  goRegisterBtn.classList.toggle("active", isRegister);
-  goRecordsBtn.classList.toggle("active", !isRegister);
-
-  if (!isRegister && currentSession) {
+  if (screenName === "records" && currentSession) {
     loadRecords();
+  }
+  if (screenName === "stock" && currentSession) {
+    loadStock();
   }
 }
 
@@ -124,6 +142,7 @@ function setAuthenticatedView(session) {
     currentUserEl.textContent = session.user.email || "Conta ativa";
     showScreen("register");
     loadRecords();
+    loadStock();
     return;
   }
 
@@ -336,8 +355,29 @@ async function createQuickRecord(type) {
       return false;
     }
 
-    await response.json();
-    showMessage(`+1 ${typeLabel(type)} registrado com sucesso.`);
+    const result = await response.json();
+
+    // Update local stock cache if backend returned stock info
+    if (result.stock) {
+      if (!stockData[selectedSize]) {
+        stockData[selectedSize] = { low_threshold: 5, usage7d: 0 };
+      }
+      stockData[selectedSize].quantity = result.stock.quantity;
+      stockData[selectedSize].low_threshold = result.stock.low_threshold;
+      updateStockIndicator();
+      if (stockScreen && stockScreen.classList.contains("active")) {
+        renderStock(stockData);
+      }
+    }
+
+    if (result.stock && result.stock.quantity === 0) {
+      showMessage(`+1 ${typeLabel(type)} • ⛔ Sem estoque tamanho ${selectedSize}!`, true);
+    } else if (result.stock && result.stock.is_low) {
+      showMessage(`+1 ${typeLabel(type)} • ⚠️ Estoque ${selectedSize}: ${result.stock.quantity} restantes`);
+    } else {
+      showMessage(`+1 ${typeLabel(type)} registrado.`);
+    }
+
     await loadRecords();
     return true;
   } catch (error) {
@@ -345,6 +385,198 @@ async function createQuickRecord(type) {
     console.error("Erro ao criar registro:", error);
     return false;
   }
+}
+
+function updateStockIndicator() {
+  if (!stockIndicatorEl) {
+    return;
+  }
+
+  const entry = stockData[selectedSize];
+  if (!entry) {
+    stockIndicatorEl.textContent = "";
+    stockIndicatorEl.className = "stock-indicator";
+    return;
+  }
+
+  const { quantity, low_threshold } = entry;
+  const isEmpty = quantity === 0;
+  const isLow = quantity <= low_threshold;
+
+  if (isEmpty) {
+    stockIndicatorEl.textContent = `⛔ Sem estoque tamanho ${selectedSize}`;
+    stockIndicatorEl.className = "stock-indicator stock-indicator-empty";
+  } else if (isLow) {
+    stockIndicatorEl.textContent = `⚠️ Estoque ${selectedSize}: ${quantity} unidades (baixo)`;
+    stockIndicatorEl.className = "stock-indicator stock-indicator-low";
+  } else {
+    stockIndicatorEl.textContent = `📦 Estoque ${selectedSize}: ${quantity} unidades`;
+    stockIndicatorEl.className = "stock-indicator";
+  }
+}
+
+async function loadStock() {
+  if (!currentSession) {
+    return;
+  }
+
+  const response = await fetch(`${API_BASE}/api/stock`, {
+    headers: { ...getAuthHeaders() },
+  });
+
+  if (response.status === 401) {
+    handleUnauthorized();
+    return;
+  }
+
+  if (!response.ok) {
+    return;
+  }
+
+  stockData = await response.json();
+  updateStockIndicator();
+  renderStock(stockData);
+}
+
+async function saveStockEntry(size, quantity, low_threshold) {
+  const response = await fetch(`${API_BASE}/api/stock/${size}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify({ quantity, low_threshold }),
+  });
+
+  if (response.status === 401) {
+    handleUnauthorized();
+    return false;
+  }
+
+  return response.ok;
+}
+
+function renderStock(stock) {
+  if (!stockListEl) {
+    return;
+  }
+
+  stockListEl.innerHTML = "";
+
+  for (const size of VALID_SIZES_ARR) {
+    const entry = stock[size] || { quantity: 0, low_threshold: 5, usage7d: 0 };
+    const { quantity, low_threshold, usage7d } = entry;
+    const avgPerDay = usage7d / 7;
+    const daysLeft = avgPerDay > 0 ? Math.floor(quantity / avgPerDay) : null;
+    const suggestedBuy = avgPerDay > 0 ? Math.ceil(avgPerDay * 30) : null;
+    const isEmpty = quantity === 0;
+    const isLow = quantity <= low_threshold;
+
+    const barMax = Math.max(quantity * 1.2, low_threshold * 4, 20);
+    const barPct = quantity === 0 ? 0 : Math.min(100, Math.round((quantity / barMax) * 100));
+
+    let barClass = "stock-bar-fill";
+    if (isEmpty) {
+      barClass += " bar-empty";
+    } else if (isLow) {
+      barClass += " bar-low";
+    } else {
+      barClass += " bar-ok";
+    }
+
+    let cardClass = "card stock-card";
+    if (isEmpty) {
+      cardClass += " stock-card-empty";
+    } else if (isLow) {
+      cardClass += " stock-card-low";
+    }
+
+    const alertHtml = isEmpty
+      ? `<p class="stock-alert stock-alert-empty">⛔ Sem estoque!</p>`
+      : isLow
+      ? `<p class="stock-alert stock-alert-low">⚠️ Estoque baixo (alerta: ${low_threshold} unid.)</p>`
+      : "";
+
+    const statsHtml = usage7d > 0
+      ? `<div class="stock-stats">
+          <span>Uso 7 dias: <strong>${usage7d}</strong></span>
+          <span>Média: <strong>${avgPerDay.toFixed(1)}/dia</strong></span>
+          ${daysLeft !== null ? `<span>Estimativa: <strong>${daysLeft} dia(s)</strong></span>` : ""}
+          ${suggestedBuy !== null ? `<div class="stock-suggestion">💡 Sugestão: comprar ~${suggestedBuy} unidades para 30 dias</div>` : ""}
+        </div>`
+      : `<div class="stock-stats stock-stats-muted"><span>Sem uso recente para calcular médias.</span></div>`;
+
+    const card = document.createElement("section");
+    card.className = cardClass;
+    card.innerHTML = `
+      <div class="stock-card-header">
+        <div class="stock-card-title">
+          <span class="stock-size-badge">${size}</span>
+          <span class="stock-size-name">${SIZE_NAMES[size]}</span>
+        </div>
+        <div class="stock-qty-display${isEmpty ? " qty-empty" : isLow ? " qty-low" : ""}">${quantity}</div>
+      </div>
+      <div class="stock-bar-wrap" aria-hidden="true">
+        <div class="${barClass}" style="width:${barPct}%"></div>
+      </div>
+      ${alertHtml}
+      <div class="stock-controls">
+        <button class="stock-adj-btn" data-size="${size}" data-delta="-1" type="button" aria-label="Diminuir 1">−</button>
+        <input class="stock-qty-input" type="number" min="0" max="9999" value="${quantity}" data-size="${size}" aria-label="Quantidade ${size}" />
+        <button class="stock-adj-btn" data-size="${size}" data-delta="1" type="button" aria-label="Aumentar 1">+</button>
+        <button class="stock-save-btn" data-size="${size}" type="button">Salvar</button>
+      </div>
+      <div class="stock-threshold-row">
+        <label for="threshold-${size}">Alerta abaixo de:</label>
+        <input class="stock-threshold-input" id="threshold-${size}" type="number" min="0" max="999" value="${low_threshold}" data-size="${size}" aria-label="Limite de alerta ${size}" />
+        <span class="stock-threshold-unit">unidades</span>
+      </div>
+      ${statsHtml}
+    `;
+
+    stockListEl.appendChild(card);
+  }
+
+  stockListEl.querySelectorAll(".stock-adj-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const { size, delta } = btn.dataset;
+      const input = stockListEl.querySelector(`.stock-qty-input[data-size="${size}"]`);
+      if (input) {
+        input.value = Math.max(0, Number(input.value) + Number(delta));
+      }
+    });
+  });
+
+  stockListEl.querySelectorAll(".stock-save-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const { size } = btn.dataset;
+      const qtyInput = stockListEl.querySelector(`.stock-qty-input[data-size="${size}"]`);
+      const threshInput = stockListEl.querySelector(`.stock-threshold-input[data-size="${size}"]`);
+      const qty = Math.max(0, Math.floor(Number(qtyInput ? qtyInput.value : 0)));
+      const threshold = Math.max(0, Math.floor(Number(threshInput ? threshInput.value : 5)));
+
+      btn.disabled = true;
+      btn.textContent = "Salvando...";
+
+      const ok = await saveStockEntry(size, qty, threshold);
+
+      btn.disabled = false;
+      btn.textContent = "Salvar";
+
+      if (ok) {
+        if (!stockData[size]) {
+          stockData[size] = { usage7d: 0 };
+        }
+        stockData[size].quantity = qty;
+        stockData[size].low_threshold = threshold;
+        updateStockIndicator();
+        renderStock(stockData);
+        showMessage(`Estoque ${size} salvo: ${qty} unidades.`);
+      } else {
+        showMessage("Não foi possível salvar o estoque.", true);
+      }
+    });
+  });
 }
 
 async function handleLoginSubmit(event) {
@@ -432,6 +664,7 @@ for (const button of sizeButtons) {
 
     sizeButtons.forEach((btn) => btn.classList.remove("active"));
     button.classList.add("active");
+    updateStockIndicator();
   });
 }
 
@@ -471,6 +704,10 @@ goRegisterBtn.addEventListener("click", () => {
 
 goRecordsBtn.addEventListener("click", () => {
   showScreen("records");
+});
+
+goStockBtn.addEventListener("click", () => {
+  showScreen("stock");
 });
 
 filterDateInput.addEventListener("change", loadRecords);
