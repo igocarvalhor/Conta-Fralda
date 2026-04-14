@@ -1,0 +1,12 @@
+{
+  "name": "Conta Fraldas",
+  "short_name": "Conta Fraldas",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#e6f3ec",
+  "theme_color": "#e6f3ec",
+  "lang": "pt-BR",
+  "description": "Registre rapidamente trocas de fraldas por tipo, tamanho e horario.",
+  "icons": []
+}

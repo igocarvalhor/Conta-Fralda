@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#e6f3ec" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Conta Fraldas" />
+    <title>Conta Fraldas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800&family=Baloo+2:wght@700&display=swap" rel="stylesheet" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="stylesheet" href="styles.css?v=5" />
+  </head>
+  <body>
+    <main class="app">
+      <section class="card hero">
+        <h1>Conta Fraldas</h1>
+        <p>Registre quantas fraldas foram usadas por dia.</p>
+      </section>
+
+      <nav class="screen-nav" aria-label="Navegacao principal">
+        <button id="go-register" class="screen-tab active" type="button">Registrar</button>
+        <button id="go-records" class="screen-tab" type="button">Ver registros</button>
+      </nav>
+
+      <section id="screen-register" class="screen active" aria-label="Tela de registro rapido">
+        <section class="card quick-card">
+          <h2>Registro rapido</h2>
+          <p class="quick-tip">Toque em um botao para somar 1 fralda com a data de hoje automaticamente.</p>
+          
+          <div class="size-selector">
+            <label>Tamanho:</label>
+            <div class="size-buttons">
+              <button id="size-rn" class="size-btn" data-size="RN" type="button">RN</button>
+              <button id="size-p" class="size-btn" data-size="P" type="button">P</button>
+              <button id="size-m" class="size-btn active" data-size="M" type="button">M</button>
+              <button id="size-g" class="size-btn" data-size="G" type="button">G</button>
+              <button id="size-xg" class="size-btn" data-size="XG" type="button">XG</button>
+              <button id="size-xxg" class="size-btn" data-size="XXG" type="button">XXG</button>
+            </div>
+          </div>
+          
+          <div class="quick-actions">
+            <button class="quick-btn" data-type="xixi" type="button" aria-label="Adicionar 1 xixi">
+              <span class="quick-icon" aria-hidden="true">💧</span>
+              <span class="quick-label">+1 Xixi</span>
+            </button>
+            <button class="quick-btn" data-type="coco" type="button" aria-label="Adicionar 1 coco">
+              <span class="quick-icon" aria-hidden="true">💩</span>
+              <span class="quick-label">+1 Coco</span>
+            </button>
+            <button class="quick-btn" data-type="ambos" type="button" aria-label="Adicionar 1 os dois">
+              <span class="quick-icon" aria-hidden="true">✅</span>
+              <span class="quick-label">+1 Os dois</span>
+            </button>
+          </div>
+          <p id="form-message" aria-live="polite"></p>
+        </section>
+      </section>
+
+      <section id="screen-records" class="screen" aria-label="Tela de historico de registros">
+        <section class="card filter-card">
+          <h2>Filtros e resumo</h2>
+          <div class="filter-row">
+            <label for="filter-date">Filtrar por data</label>
+            <input id="filter-date" type="date" />
+
+            <label for="filter-type">Tipo</label>
+            <select id="filter-type">
+              <option value="">Todos</option>
+              <option value="xixi">Xixi</option>
+              <option value="coco">Coco</option>
+              <option value="ambos">Os dois</option>
+            </select>
+
+            <label for="filter-size">Tamanho</label>
+            <select id="filter-size">
+              <option value="">Todos</option>
+              <option value="RN">RN</option>
+              <option value="P">P</option>
+              <option value="M">M</option>
+              <option value="G">G</option>
+              <option value="XG">XG</option>
+              <option value="XXG">XXG</option>
+            </select>
+
+            <button id="clear-filter" type="button">Limpar filtro</button>
+          </div>
+          <p id="active-filters" class="active-filters">Filtros ativos: nenhum</p>
+          <p id="summary">Carregando...</p>
+          <div id="type-summary" class="type-summary"></div>
+        </section>
+
+        <section class="card list-card">
+          <h2>Registros</h2>
+          <ul id="records-list"></ul>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js?v=6"></script>
+  </body>
+</html>
