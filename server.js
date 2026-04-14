@@ -1,55 +1,24 @@
 const express = require("express");
 const path = require("path");
-const sqlite3 = require("sqlite3").verbose();
+const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const dbPath = path.join(__dirname, "data", "fraldas.db");
-const db = new sqlite3.Database(dbPath);
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const hasSupabaseConfig = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+
+const supabase = hasSupabaseConfig
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      autoRefreshToken: false,
+      persistSession: false,
+    })
+  : null;
 
 const VALID_TYPES = ["xixi", "coco", "ambos"];
 const VALID_SIZES = ["RN", "P", "M", "G", "XG", "XXG"];
-
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS records (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      date TEXT NOT NULL,
-      type TEXT NOT NULL DEFAULT 'xixi',
-      size TEXT NOT NULL DEFAULT 'M',
-      quantity INTEGER NOT NULL CHECK(quantity > 0),
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  // Migra bancos antigos adicionando colunas quando elas nao existirem.
-  db.all("PRAGMA table_info(records)", (err, columns) => {
-    if (err) {
-      console.error("Erro ao verificar estrutura da tabela records:", err.message);
-      return;
-    }
-
-    const hasTypeColumn = columns.some((column) => column.name === "type");
-    const hasSizeColumn = columns.some((column) => column.name === "size");
-
-    if (!hasTypeColumn) {
-      db.run("ALTER TABLE records ADD COLUMN type TEXT NOT NULL DEFAULT 'xixi'", (alterErr) => {
-        if (alterErr) {
-          console.error("Erro ao migrar coluna type:", alterErr.message);
-        }
-      });
-    }
-
-    if (!hasSizeColumn) {
-      db.run("ALTER TABLE records ADD COLUMN size TEXT NOT NULL DEFAULT 'M'", (alterErr) => {
-        if (alterErr) {
-          console.error("Erro ao migrar coluna size:", alterErr.message);
-        }
-      });
-    }
-  });
-});
 
 app.use(express.json());
 
@@ -87,7 +56,7 @@ function getTodayDateISO() {
 
 function formatTimeInBrasilia(datetimeStr) {
   if (!datetimeStr) return "";
-  const date = new Date(datetimeStr + "Z");
+  const date = new Date(datetimeStr);
   const formatter = new Intl.DateTimeFormat("pt-BR", {
     timeZone: "America/Sao_Paulo",
     hour: "2-digit",
@@ -96,7 +65,22 @@ function formatTimeInBrasilia(datetimeStr) {
   return formatter.format(date);
 }
 
-app.get("/api/records", (req, res) => {
+function ensureSupabaseConfigured(res) {
+  if (supabase) {
+    return true;
+  }
+
+  res.status(500).json({
+    error: "Supabase não configurado. Defina SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY.",
+  });
+  return false;
+}
+
+app.get("/api/records", async (req, res) => {
+  if (!ensureSupabaseConfigured(res)) {
+    return;
+  }
+
   const { date, type, size } = req.query;
 
   if (date && !isValidDate(date)) {
@@ -113,52 +97,52 @@ app.get("/api/records", (req, res) => {
     return res.status(400).json({ error: "Tamanho inválido. Use RN, P, M, G, XG ou XXG." });
   }
 
-  const filters = [];
-  const params = [];
+  let query = supabase
+    .from("records")
+    .select("id,date,type,size,quantity,created_at")
+    .order("date", { ascending: false })
+    .order("id", { ascending: false });
 
   if (date) {
-    filters.push("date = ?");
-    params.push(date);
+    query = query.eq("date", date);
   }
 
   if (parsedType) {
-    filters.push("type = ?");
-    params.push(parsedType);
+    query = query.eq("type", parsedType);
   }
 
   if (parsedSize) {
-    filters.push("size = ?");
-    params.push(parsedSize);
+    query = query.eq("size", parsedSize);
   }
 
-  const whereClause = filters.length ? ` WHERE ${filters.join(" AND ")}` : "";
-  const sql = `SELECT id, date, type, size, quantity, created_at FROM records${whereClause} ORDER BY date DESC, id DESC`;
+  const { data: rows, error } = await query;
+  if (error) {
+    return res.status(500).json({ error: "Erro ao buscar registros." });
+  }
 
-  db.all(sql, params, (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: "Erro ao buscar registros." });
+  const total = rows.reduce((sum, row) => sum + row.quantity, 0);
+  const byType = { xixi: 0, coco: 0, ambos: 0 };
+
+  for (const row of rows) {
+    if (Object.prototype.hasOwnProperty.call(byType, row.type)) {
+      byType[row.type] += row.quantity;
     }
+    row.time_brasilia = formatTimeInBrasilia(row.created_at);
+  }
 
-    const total = rows.reduce((sum, row) => sum + row.quantity, 0);
-    const byType = { xixi: 0, coco: 0, ambos: 0 };
-
-    for (const row of rows) {
-      if (Object.prototype.hasOwnProperty.call(byType, row.type)) {
-        byType[row.type] += row.quantity;
-      }
-      row.time_brasilia = formatTimeInBrasilia(row.created_at);
-    }
-
-    return res.json({
-      total,
-      count: rows.length,
-      byType,
-      records: rows,
-    });
+  return res.json({
+    total,
+    count: rows.length,
+    byType,
+    records: rows,
   });
 });
 
-app.post("/api/records", (req, res) => {
+app.post("/api/records", async (req, res) => {
+  if (!ensureSupabaseConfigured(res)) {
+    return;
+  }
+
   const { quantity, type, size } = req.body;
   const parsedDate = getTodayDateISO();
 
@@ -177,43 +161,59 @@ app.post("/api/records", (req, res) => {
     return res.status(400).json({ error: "Tamanho inválido. Use RN, P, M, G, XG ou XXG." });
   }
 
-  db.run(
-    "INSERT INTO records (date, type, size, quantity) VALUES (?, ?, ?, ?)",
-    [parsedDate, parsedType, parsedSize, parsedQuantity],
-    function onInsert(err) {
-      if (err) {
-        return res.status(500).json({ error: "Erro ao salvar registro." });
-      }
+  const { data, error } = await supabase
+    .from("records")
+    .insert([
+      {
+      date: parsedDate,
+      type: parsedType,
+      size: parsedSize,
+      quantity: parsedQuantity,
+      },
+    ], { returning: "representation" });
 
-      return res.status(201).json({
-        id: this.lastID,
-        date: parsedDate,
-        type: parsedType,
-        size: parsedSize,
-        quantity: parsedQuantity,
-      });
-    }
-  );
+  if (error) {
+    return res.status(500).json({ error: "Erro ao salvar registro." });
+  }
+
+  return res.status(201).json(data[0]);
 });
 
-app.delete("/api/records/:id", (req, res) => {
+app.delete("/api/records/:id", async (req, res) => {
+  if (!ensureSupabaseConfigured(res)) {
+    return;
+  }
+
   const id = Number(req.params.id);
 
   if (!Number.isInteger(id) || id <= 0) {
     return res.status(400).json({ error: "ID inválido." });
   }
 
-  db.run("DELETE FROM records WHERE id = ?", [id], function onDelete(err) {
-    if (err) {
-      return res.status(500).json({ error: "Erro ao excluir registro." });
-    }
+  const { data: existing, error: findError } = await supabase
+    .from("records")
+    .select("id")
+    .eq("id", id)
+    .limit(1);
 
-    if (this.changes === 0) {
-      return res.status(404).json({ error: "Registro não encontrado." });
-    }
+  if (findError) {
+    return res.status(500).json({ error: "Erro ao excluir registro." });
+  }
 
-    return res.status(204).send();
-  });
+  if (!existing || existing.length === 0) {
+    return res.status(404).json({ error: "Registro não encontrado." });
+  }
+
+  const { error } = await supabase
+    .from("records")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    return res.status(500).json({ error: "Erro ao excluir registro." });
+  }
+
+  return res.status(204).send();
 });
 
 if (require.main === module) {
