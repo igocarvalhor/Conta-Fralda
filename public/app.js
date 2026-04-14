@@ -14,9 +14,10 @@ const summaryEl = document.getElementById("summary");
 const typeSummaryEl = document.getElementById("type-summary");
 const recordsList = document.getElementById("records-list");
 
-const API_BASE = window.location.port === "3000"
-  ? ""
-  : `${window.location.protocol}//${window.location.hostname}:3000`;
+const isLocalDevHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+const API_BASE = isLocalDevHost && window.location.port && window.location.port !== "3000"
+  ? `${window.location.protocol}//${window.location.hostname}:3000`
+  : "";
 
 let selectedSize = localStorage.getItem("selectedSize") || "M";
 let messageTimer = null;

@@ -1,4 +1,4 @@
-const CACHE_NAME = "fraldaapp-v2";
+const CACHE_NAME = "fraldaapp-v3";
 const CORE_ASSETS = [
   "./",
   "./index.html",
