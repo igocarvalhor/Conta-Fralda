@@ -367,15 +367,30 @@ async function handleSignupSubmit(event) {
   event.preventDefault();
   const formData = new FormData(signupForm);
   const email = String(formData.get("email") || "").trim();
+  const phoneRaw = String(formData.get("phone") || "").trim();
+  const phoneDigits = phoneRaw.replace(/\D/g, "");
   const password = String(formData.get("password") || "");
   const passwordConfirm = String(formData.get("passwordConfirm") || "");
+
+  if (phoneDigits.length < 10) {
+    showAuthMessage("Informe um telefone válido com DDD.", true);
+    return;
+  }
 
   if (password !== passwordConfirm) {
     showAuthMessage("As senhas não conferem.", true);
     return;
   }
 
-  const { session, error } = await authClient.auth.signUp({ email, password });
+  const { session, error } = await authClient.auth.signUp({
+    email,
+    password,
+  }, {
+    data: {
+      phone: phoneRaw,
+      phone_digits: phoneDigits,
+    },
+  });
   if (error) {
     showAuthMessage(error.message || "Não foi possível criar a conta.", true);
     return;
