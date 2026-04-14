@@ -14,10 +14,53 @@
     <link rel="stylesheet" href="styles.css?v=8" />
   </head>
   <body>
-    <main class="app">
-      <section class="card hero">
+    <section id="auth-shell" class="auth-shell">
+      <section class="card auth-card">
         <h1>Conta Fraldas</h1>
-        <p>Registre quantas fraldas foram usadas por dia.</p>
+        <p class="auth-subtitle">Entre na sua conta ou crie uma nova para guardar seus registros separadamente.</p>
+
+        <div class="auth-tabs" aria-label="Acesso à conta">
+          <button id="show-login" class="auth-tab active" type="button">Entrar</button>
+          <button id="show-signup" class="auth-tab" type="button">Criar conta</button>
+        </div>
+
+        <form id="login-form" class="auth-form active">
+          <label for="login-email">E-mail</label>
+          <input id="login-email" name="email" type="email" autocomplete="email" required />
+
+          <label for="login-password">Senha</label>
+          <input id="login-password" name="password" type="password" autocomplete="current-password" required />
+
+          <button class="auth-submit" type="submit">Entrar</button>
+        </form>
+
+        <form id="signup-form" class="auth-form">
+          <label for="signup-email">E-mail</label>
+          <input id="signup-email" name="email" type="email" autocomplete="email" required />
+
+          <label for="signup-password">Senha</label>
+          <input id="signup-password" name="password" type="password" autocomplete="new-password" minlength="6" required />
+
+          <label for="signup-password-confirm">Confirmar senha</label>
+          <input id="signup-password-confirm" name="passwordConfirm" type="password" autocomplete="new-password" minlength="6" required />
+
+          <button class="auth-submit" type="submit">Criar conta</button>
+        </form>
+
+        <p id="auth-message" class="auth-message" aria-live="polite"></p>
+      </section>
+    </section>
+
+    <main id="app-shell" class="app hidden">
+      <section class="card hero hero-top">
+        <div>
+          <h1>Conta Fraldas</h1>
+          <p>Registre quantas fraldas foram usadas por dia.</p>
+        </div>
+        <div class="session-box">
+          <span id="current-user" class="current-user"></span>
+          <button id="logout-button" class="logout-button" type="button">Sair</button>
+        </div>
       </section>
 
       <nav class="screen-nav" aria-label="Navegacao principal">
@@ -100,6 +143,7 @@
       </section>
     </main>
 
-    <script src="app.js?v=8"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@1.35.7/dist/umd/supabase.min.js"></script>
+    <script src="app.js?v=9"></script>
   </body>
 </html>

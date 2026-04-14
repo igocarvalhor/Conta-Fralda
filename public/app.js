@@ -1,3 +1,15 @@
+const SUPABASE_URL = "https://ipvaoatvdwcmvlsrdsga.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_RKh6S7lNFIhSEVF8RDJXsA_6hZBuYQA";
+
+const authShell = document.getElementById("auth-shell");
+const appShell = document.getElementById("app-shell");
+const showLoginBtn = document.getElementById("show-login");
+const showSignupBtn = document.getElementById("show-signup");
+const loginForm = document.getElementById("login-form");
+const signupForm = document.getElementById("signup-form");
+const authMessageEl = document.getElementById("auth-message");
+const logoutButton = document.getElementById("logout-button");
+const currentUserEl = document.getElementById("current-user");
 const messageEl = document.getElementById("form-message");
 const quickButtons = document.querySelectorAll(".quick-btn");
 const sizeButtons = document.querySelectorAll(".size-btn");
@@ -19,8 +31,11 @@ const API_BASE = isLocalDevHost && window.location.port && window.location.port 
   ? `${window.location.protocol}//${window.location.hostname}:3000`
   : "";
 
+const authClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+
 let selectedSize = localStorage.getItem("selectedSize") || "M";
 let messageTimer = null;
+let currentSession = null;
 
 function showScreen(screenName) {
   const isRegister = screenName === "register";
@@ -30,7 +45,7 @@ function showScreen(screenName) {
   goRegisterBtn.classList.toggle("active", isRegister);
   goRecordsBtn.classList.toggle("active", !isRegister);
 
-  if (!isRegister) {
+  if (!isRegister && currentSession) {
     loadRecords();
   }
 }
@@ -49,6 +64,11 @@ function showMessage(text, isError = false) {
   }, isError ? 3800 : 1900);
 }
 
+function showAuthMessage(text, isError = false) {
+  authMessageEl.textContent = text;
+  authMessageEl.style.color = isError ? "#8b2626" : "#275340";
+}
+
 function formatDate(isoDate) {
   const [year, month, day] = isoDate.split("-");
   return `${day}/${month}/${year}`;
@@ -56,6 +76,77 @@ function formatDate(isoDate) {
 
 function formatTime(timeStr) {
   return timeStr || "";
+}
+
+function typeLabel(type) {
+  if (type === "coco") {
+    return "Coco";
+  }
+
+  if (type === "ambos") {
+    return "Os dois";
+  }
+
+  return "Xixi";
+}
+
+function sizeLabel(size) {
+  const sizeMap = {
+    RN: "Recém-nascido",
+    P: "Pequeno",
+    M: "Médio",
+    G: "Grande",
+    XG: "Extra Grande",
+    XXG: "Extra Extra Grande",
+  };
+
+  return sizeMap[size] || size;
+}
+
+function showAuthTab(mode) {
+  const isLogin = mode === "login";
+
+  showLoginBtn.classList.toggle("active", isLogin);
+  showSignupBtn.classList.toggle("active", !isLogin);
+  loginForm.classList.toggle("active", isLogin);
+  signupForm.classList.toggle("active", !isLogin);
+  showAuthMessage("");
+}
+
+function setAuthenticatedView(session) {
+  currentSession = session;
+  const isAuthenticated = Boolean(session?.access_token && session?.user);
+
+  authShell.classList.toggle("hidden", isAuthenticated);
+  appShell.classList.toggle("hidden", !isAuthenticated);
+
+  if (isAuthenticated) {
+    currentUserEl.textContent = session.user.email || "Conta ativa";
+    showScreen("register");
+    loadRecords();
+    return;
+  }
+
+  currentUserEl.textContent = "";
+  summaryEl.textContent = "Faça login para ver seus registros.";
+  typeSummaryEl.innerHTML = "";
+  recordsList.innerHTML = "";
+}
+
+function getAuthHeaders() {
+  if (!currentSession?.access_token) {
+    return {};
+  }
+
+  return {
+    Authorization: `Bearer ${currentSession.access_token}`,
+  };
+}
+
+function handleUnauthorized() {
+  setAuthenticatedView(null);
+  showAuthTab("login");
+  showAuthMessage("Sua sessão expirou. Entre novamente.", true);
 }
 
 function updateActiveFiltersText() {
@@ -79,6 +170,10 @@ function updateActiveFiltersText() {
 }
 
 async function loadRecords() {
+  if (!currentSession) {
+    return;
+  }
+
   updateActiveFiltersText();
 
   const date = filterDateInput.value;
@@ -101,7 +196,17 @@ async function loadRecords() {
     ? `${API_BASE}/api/records?${queryString}`
     : `${API_BASE}/api/records`;
 
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: {
+      ...getAuthHeaders(),
+    },
+  });
+
+  if (response.status === 401) {
+    handleUnauthorized();
+    return;
+  }
+
   if (!response.ok) {
     summaryEl.textContent = "Erro ao carregar registros.";
     return;
@@ -128,30 +233,6 @@ function renderTypeSummary(byType) {
     <span class="pill">Coco: ${byType.coco || 0}</span>
     <span class="pill">Os dois: ${byType.ambos || 0}</span>
   `;
-}
-
-function typeLabel(type) {
-  if (type === "coco") {
-    return "Coco";
-  }
-
-  if (type === "ambos") {
-    return "Os dois";
-  }
-
-  return "Xixi";
-}
-
-function sizeLabel(size) {
-  const sizeMap = {
-    "RN": "Recém-nascido",
-    "P": "Pequeno",
-    "M": "Médio",
-    "G": "Grande",
-    "XG": "Extra Grande",
-    "XXG": "Extra Extra Grande"
-  };
-  return sizeMap[size] || size;
 }
 
 function renderRecords(records) {
@@ -193,7 +274,18 @@ function renderRecords(records) {
         return;
       }
 
-      const response = await fetch(`${API_BASE}/api/records/${record.id}`, { method: "DELETE" });
+      const response = await fetch(`${API_BASE}/api/records/${record.id}`, {
+        method: "DELETE",
+        headers: {
+          ...getAuthHeaders(),
+        },
+      });
+
+      if (response.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+
       if (!response.ok) {
         showMessage("Não foi possível excluir.", true);
         return;
@@ -210,6 +302,11 @@ function renderRecords(records) {
 }
 
 async function createQuickRecord(type) {
+  if (!currentSession) {
+    handleUnauthorized();
+    return false;
+  }
+
   const payload = {
     quantity: 1,
     type,
@@ -219,9 +316,17 @@ async function createQuickRecord(type) {
   try {
     const response = await fetch(`${API_BASE}/api/records`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeaders(),
+      },
       body: JSON.stringify(payload),
     });
+
+    if (response.status === 401) {
+      handleUnauthorized();
+      return false;
+    }
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({ error: "Erro ao salvar." }));
@@ -231,7 +336,7 @@ async function createQuickRecord(type) {
       return false;
     }
 
-    const data = await response.json();
+    await response.json();
     showMessage(`+1 ${typeLabel(type)} registrado com sucesso.`);
     await loadRecords();
     return true;
@@ -242,13 +347,57 @@ async function createQuickRecord(type) {
   }
 }
 
+async function handleLoginSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(loginForm);
+  const email = String(formData.get("email") || "").trim();
+  const password = String(formData.get("password") || "");
+
+  const { session, error } = await authClient.auth.signIn({ email, password });
+  if (error) {
+    showAuthMessage(error.message || "Não foi possível entrar.", true);
+    return;
+  }
+
+  setAuthenticatedView(session);
+  showAuthMessage("");
+}
+
+async function handleSignupSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(signupForm);
+  const email = String(formData.get("email") || "").trim();
+  const password = String(formData.get("password") || "");
+  const passwordConfirm = String(formData.get("passwordConfirm") || "");
+
+  if (password !== passwordConfirm) {
+    showAuthMessage("As senhas não conferem.", true);
+    return;
+  }
+
+  const { session, error } = await authClient.auth.signUp({ email, password });
+  if (error) {
+    showAuthMessage(error.message || "Não foi possível criar a conta.", true);
+    return;
+  }
+
+  if (session) {
+    setAuthenticatedView(session);
+    showAuthMessage("");
+    return;
+  }
+
+  showAuthMessage("Conta criada. Se o Supabase exigir confirmação, verifique seu e-mail para concluir o acesso.");
+  showAuthTab("login");
+  loginForm.reset();
+}
+
 for (const button of quickButtons) {
   button.addEventListener("click", async () => {
     const { type } = button.dataset;
     const ok = await createQuickRecord(type);
     if (ok) {
       button.classList.remove("success-pulse");
-      // Forca reflow para repetir a animacao em toques seguidos.
       void button.offsetWidth;
       button.classList.add("success-pulse");
     }
@@ -274,6 +423,28 @@ function initializeSize() {
   }
 }
 
+showLoginBtn.addEventListener("click", () => {
+  showAuthTab("login");
+});
+
+showSignupBtn.addEventListener("click", () => {
+  showAuthTab("signup");
+});
+
+loginForm.addEventListener("submit", handleLoginSubmit);
+signupForm.addEventListener("submit", handleSignupSubmit);
+logoutButton.addEventListener("click", async () => {
+  const { error } = await authClient.auth.signOut();
+  if (error) {
+    showMessage("Não foi possível sair da conta.", true);
+    return;
+  }
+
+  setAuthenticatedView(null);
+  showAuthTab("login");
+  showAuthMessage("Você saiu da conta.");
+});
+
 goRegisterBtn.addEventListener("click", () => {
   showScreen("register");
 });
@@ -292,8 +463,15 @@ clearFilterBtn.addEventListener("click", async () => {
   await loadRecords();
 });
 
+showAuthTab("login");
 showScreen("register");
 initializeSize();
+updateActiveFiltersText();
+setAuthenticatedView(authClient.auth.session());
+
+authClient.auth.onAuthStateChange((_event, session) => {
+  setAuthenticatedView(session);
+});
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {

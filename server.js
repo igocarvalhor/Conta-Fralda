@@ -26,7 +26,7 @@ app.use(express.json());
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
   if (req.method === "OPTIONS") {
     return res.sendStatus(204);
@@ -76,8 +76,46 @@ function ensureSupabaseConfigured(res) {
   return false;
 }
 
+async function getAuthenticatedUser(req, res) {
+  const authHeader = req.headers.authorization || "";
+  if (!authHeader.startsWith("Bearer ")) {
+    res.status(401).json({ error: "Faça login para continuar." });
+    return null;
+  }
+
+  const accessToken = authHeader.slice("Bearer ".length).trim();
+  if (!accessToken) {
+    res.status(401).json({ error: "Sessão inválida. Entre novamente." });
+    return null;
+  }
+
+  try {
+    const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      res.status(401).json({ error: "Sessão inválida. Entre novamente." });
+      return null;
+    }
+
+    return await response.json();
+  } catch (error) {
+    res.status(500).json({ error: "Não foi possível validar a sessão." });
+    return null;
+  }
+}
+
 app.get("/api/records", async (req, res) => {
   if (!ensureSupabaseConfigured(res)) {
+    return;
+  }
+
+  const user = await getAuthenticatedUser(req, res);
+  if (!user) {
     return;
   }
 
@@ -100,6 +138,7 @@ app.get("/api/records", async (req, res) => {
   let query = supabase
     .from("records")
     .select("id,date,type,size,quantity,created_at")
+    .eq("user_id", user.id)
     .order("date", { ascending: false })
     .order("id", { ascending: false });
 
@@ -143,6 +182,11 @@ app.post("/api/records", async (req, res) => {
     return;
   }
 
+  const user = await getAuthenticatedUser(req, res);
+  if (!user) {
+    return;
+  }
+
   const { quantity, type, size } = req.body;
   const parsedDate = getTodayDateISO();
 
@@ -165,10 +209,11 @@ app.post("/api/records", async (req, res) => {
     .from("records")
     .insert([
       {
-      date: parsedDate,
-      type: parsedType,
-      size: parsedSize,
-      quantity: parsedQuantity,
+        user_id: user.id,
+        date: parsedDate,
+        type: parsedType,
+        size: parsedSize,
+        quantity: parsedQuantity,
       },
     ], { returning: "representation" });
 
@@ -184,6 +229,11 @@ app.delete("/api/records/:id", async (req, res) => {
     return;
   }
 
+  const user = await getAuthenticatedUser(req, res);
+  if (!user) {
+    return;
+  }
+
   const id = Number(req.params.id);
 
   if (!Number.isInteger(id) || id <= 0) {
@@ -194,6 +244,7 @@ app.delete("/api/records/:id", async (req, res) => {
     .from("records")
     .select("id")
     .eq("id", id)
+    .eq("user_id", user.id)
     .limit(1);
 
   if (findError) {
@@ -207,7 +258,8 @@ app.delete("/api/records/:id", async (req, res) => {
   const { error } = await supabase
     .from("records")
     .delete()
-    .eq("id", id);
+    .eq("id", id)
+    .eq("user_id", user.id);
 
   if (error) {
     return res.status(500).json({ error: "Erro ao excluir registro." });
