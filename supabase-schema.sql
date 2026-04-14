@@ -15,3 +15,23 @@ create index if not exists idx_records_date on public.records(date);
 create index if not exists idx_records_type on public.records(type);
 create index if not exists idx_records_size on public.records(size);
 create index if not exists idx_records_user_id on public.records(user_id);
+
+create table if not exists public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  email text not null,
+  phone text not null,
+  phone_digits text not null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.profiles
+add column if not exists email text;
+
+alter table public.profiles
+add column if not exists phone text;
+
+alter table public.profiles
+add column if not exists phone_digits text;
+
+create unique index if not exists uq_profiles_email on public.profiles (lower(email));
+create unique index if not exists uq_profiles_phone_digits on public.profiles (phone_digits);

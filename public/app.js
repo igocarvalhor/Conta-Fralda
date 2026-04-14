@@ -382,29 +382,34 @@ async function handleSignupSubmit(event) {
     return;
   }
 
-  const { session, error } = await authClient.auth.signUp({
-    email,
-    password,
-  }, {
-    data: {
-      phone: phoneRaw,
-      phone_digits: phoneDigits,
+  const signupResponse = await fetch(`${API_BASE}/api/auth/signup`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
     },
+    body: JSON.stringify({
+      email,
+      password,
+      phone: phoneRaw,
+    }),
   });
-  if (error) {
-    showAuthMessage(error.message || "Não foi possível criar a conta.", true);
+
+  if (!signupResponse.ok) {
+    const errorPayload = await signupResponse.json().catch(() => ({ error: "Não foi possível criar a conta." }));
+    showAuthMessage(errorPayload.error || "Não foi possível criar a conta.", true);
     return;
   }
 
-  if (session) {
-    setAuthenticatedView(session);
-    showAuthMessage("");
+  const { session, error } = await authClient.auth.signIn({ email, password });
+  if (error || !session) {
+    showAuthMessage("Conta criada. Entre com seu e-mail e senha.");
+    showAuthTab("login");
+    loginForm.reset();
     return;
   }
 
-  showAuthMessage("Conta criada. Se o Supabase exigir confirmação, verifique seu e-mail para concluir o acesso.");
-  showAuthTab("login");
-  loginForm.reset();
+  setAuthenticatedView(session);
+  showAuthMessage("");
 }
 
 for (const button of quickButtons) {

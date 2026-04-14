@@ -76,6 +76,107 @@ function ensureSupabaseConfigured(res) {
   return false;
 }
 
+async function supabaseAdminRequest(pathname, options = {}) {
+  const response = await fetch(`${SUPABASE_URL}${pathname}`, {
+    method: options.method || "GET",
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (_error) {
+    payload = null;
+  }
+
+  return { response, payload };
+}
+
+app.post("/api/auth/signup", async (req, res) => {
+  if (!ensureSupabaseConfigured(res)) {
+    return;
+  }
+
+  const rawEmail = String(req.body?.email || "").trim().toLowerCase();
+  const rawPassword = String(req.body?.password || "");
+  const rawPhone = String(req.body?.phone || "").trim();
+  const phoneDigits = rawPhone.replace(/\D/g, "");
+
+  if (!rawEmail || !rawPassword) {
+    return res.status(400).json({ error: "E-mail e senha são obrigatórios." });
+  }
+
+  if (rawPassword.length < 6) {
+    return res.status(400).json({ error: "A senha deve ter pelo menos 6 caracteres." });
+  }
+
+  if (phoneDigits.length < 10) {
+    return res.status(400).json({ error: "Informe um telefone válido com DDD." });
+  }
+
+  const { data: phoneExists, error: phoneCheckError } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("phone_digits", phoneDigits)
+    .limit(1);
+
+  if (phoneCheckError) {
+    return res.status(500).json({ error: "Não foi possível validar o telefone." });
+  }
+
+  if (phoneExists && phoneExists.length > 0) {
+    return res.status(409).json({ error: "Telefone já cadastrado." });
+  }
+
+  const { response: createResponse, payload: createdUser } = await supabaseAdminRequest("/auth/v1/admin/users", {
+    method: "POST",
+    body: {
+      email: rawEmail,
+      password: rawPassword,
+      email_confirm: true,
+    },
+  });
+
+  if (!createResponse.ok || !createdUser?.id) {
+    const message = String(createdUser?.msg || createdUser?.message || "").toLowerCase();
+    if (createResponse.status === 422 || message.includes("already") || message.includes("registered")) {
+      return res.status(409).json({ error: "E-mail já cadastrado." });
+    }
+    return res.status(500).json({ error: "Não foi possível criar a conta." });
+  }
+
+  const { error: profileInsertError } = await supabase
+    .from("profiles")
+    .insert([
+      {
+        id: createdUser.id,
+        email: rawEmail,
+        phone: rawPhone,
+        phone_digits: phoneDigits,
+      },
+    ]);
+
+  if (profileInsertError) {
+    await supabaseAdminRequest(`/auth/v1/admin/users/${createdUser.id}`, {
+      method: "DELETE",
+    });
+
+    if (String(profileInsertError.message || "").toLowerCase().includes("duplicate")) {
+      return res.status(409).json({ error: "Telefone já cadastrado." });
+    }
+
+    return res.status(500).json({ error: "Conta criada parcialmente. Tente novamente." });
+  }
+
+  return res.status(201).json({ ok: true });
+});
+
 async function getAuthenticatedUser(req, res) {
   const authHeader = req.headers.authorization || "";
   if (!authHeader.startsWith("Bearer ")) {
